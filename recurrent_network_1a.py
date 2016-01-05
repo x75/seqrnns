@@ -8,12 +8,12 @@ import matplotlib.pylab as pl
 
 if __name__ == '__main__':
     np.random.seed(1)      
-    size = 100
-    batch_size= 1 # 100
+    size = 10
+    batch_size= 3 # 100
     n_steps = 200
     seq_width = 1
 
-    initializer = tf.random_uniform_initializer(-0.01,0.01) 
+    initializer = tf.random_uniform_initializer(-0.8,0.8)
     # initializer = tf.zeros_initializer((size*2,1), dtype=tf.float32)
 
     seq_input = tf.placeholder(tf.float32, [n_steps, batch_size, seq_width])
@@ -29,6 +29,7 @@ if __name__ == '__main__':
     initial_state = cell.zero_state(batch_size, tf.float32)
     outputs, states = rnn.rnn(cell, inputs, initial_state=initial_state, sequence_length=early_stop)
     # set up lstm
+    final_state = states[-1]
 
     W_o = tf.Variable(tf.random_normal([size,1], stddev=0.01))
     b_o = tf.Variable(tf.random_normal([1], stddev=0.01))
@@ -49,21 +50,35 @@ if __name__ == '__main__':
     seq_input_data = np.zeros((n_steps, batch_size, seq_width)).astype('float32')
     seq_input_data[0, :, :] = 1.
     seq_input_data[n_steps/2, :, :] = -1.
-    feed = {early_stop:n_steps, seq_input: seq_input_data}
-    # define our feeds. 
-    # early_stop can be varied, but seq_input needs to match the shape that was defined earlier
 
-    outs = session.run(output, feed_dict=feed)
+    prev_state = session.run(cell.zero_state(batch_size, tf.float32))
+
+    allouts = []
+    for i in range(3):
+        print "pstate", prev_state
+        feed = {early_stop:n_steps, seq_input: seq_input_data, initial_state: prev_state}
+        # feed = {early_stop:n_steps, seq_input: seq_input_data}
+        # define our feeds. 
+        # early_stop can be varied, but seq_input needs to match the shape that was defined earlier
+
+        outs, fstate = session.run([output, final_state], feed_dict=feed)
+        prev_state = fstate
+        print "fstate", fstate
+        allouts.append(outs)
+    
     # run once
     # output is a list, each item being a single timestep. Items at t>early_stop are all 0s
-    print outs
+    # print outs
     print type(outs)
     print len(outs)
     print type(outs[0])
     print outs[0].shape
+    print "allouts", len(allouts)
 
     pl.subplot(211)
     pl.plot(seq_input_data[:,0,:])
     pl.subplot(212)
-    pl.plot(outs)
+    for i,out in enumerate(allouts):
+        pl.plot(out)
+    # pl.plot(outs)
     pl.show()
