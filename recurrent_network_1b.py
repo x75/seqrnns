@@ -4,14 +4,15 @@ import argparse
 import tensorflow as tf    
 from tensorflow.models.rnn import rnn    
 from tensorflow.models.rnn import rnn_cell
-from tensorflow.models.rnn.rnn_cell import BasicLSTMCell, LSTMCell    
+from tensorflow.models.rnn.rnn_cell import BasicLSTMCell, LSTMCell, CWRNNCell
 import numpy as np
 import matplotlib.pylab as pl
+import cPickle
 
 def gen_data(length=100):
     t = np.linspace(0, length, length, endpoint=False)
     s = np.zeros_like(t)
-    for i in range(3):
+    for i in range(2):
         s += np.sin(t * ((i * 0.1) + np.random.uniform(-0.01, 0.01)))
     return s/np.max(np.abs(s))
 
@@ -55,8 +56,9 @@ class Model():
         # targets = [tf.reshape(i, (batch_size, seq_width)) for i in tf.split(0, n_steps, target)]
         # target = tf.placeholder(tf.float32, [None, None, seq_width])
 
-        # cell = LSTMCell(self.size, self.seq_width, initializer=initializer)
-        cell = BasicLSTMCell(self.size, forget_bias=5.0)
+        # cell = LSTMCell(self.size, self.seq_width, initializer=initializer) # problem with multirnncell
+        # cell = BasicLSTMCell(self.size, forget_bias=5.0)
+        cell = CWRNNCell(self.size, [1, 4, 16, 64, 128])#, seq_width, initializer=initializer)
 
         cell = rnn_cell.MultiRNNCell([cell] * args.num_layers)
 
@@ -79,13 +81,14 @@ class Model():
         output = tf.tanh(tf.nn.xw_plus_b(output, W_o, b_o))
         # get it right here
         self.output2 = tf.reshape(output, [self.batch_size, self.n_steps, self.seq_width])
-        self.output2 = self.output2 + tf.random_normal([self.batch_size, self.n_steps, self.seq_width], stddev=0.05)
+        self.output2 = self.output2 + tf.random_normal([self.batch_size, self.n_steps, self.seq_width], stddev=0.01)
         # then transpose
         self.output2 = tf.transpose(self.output2, [1, 0, 2])
         # self.final_state = states[-1]
 
         # cost = output - target
-        self.cost = tf.reduce_mean(tf.pow(self.output2 - self.target, 2)) # MSE
+        # self.cost = tf.reduce_mean(tf.pow(self.output2 - self.target, 2)) # MSE
+        self.cost = tf.reduce_mean(tf.abs(self.output2 - self.target)) # MSE
         learning_rate = 0.001
         # print "trainable", tf.trainable_variables()
     
@@ -97,7 +100,7 @@ class Model():
 
 def train(args):
     data_pointer = 0
-    data = gen_data(1000000)
+    data = gen_data(2000000)
 
     model = Model(n_steps = args.seq_length, batch_size = args.batch_size)
     
@@ -164,6 +167,8 @@ def train(args):
             allcosts.append(tcost)
             # print len(tcost)
             print "cost[%d] = %f" % (i, tcost)
+        if i % 100 == 0:
+            saver.save(session, "recurrent_network_1b.ckpt", global_step = i)
         
         data_pointer += model.n_steps
 
@@ -172,12 +177,15 @@ def train(args):
     pl.show()
         
     # saver.save(session, "recurrent_network_1b.ckpt", global_step = i)
+    f = open("recurrent_network_1b_allcosts.cpkl", "wb")
+    cPickle.dump(allcosts, f)
+    f.close()
     saver.save(session, "recurrent_network_1b.ckpt")
     
 
 def sample(args):
     data_pointer = 0
-    data = gen_data(1000000)
+    data = gen_data(2000000)
     
     model = Model(n_steps = args.seq_length, batch_size = args.batch_size)
     
@@ -255,7 +263,7 @@ def sample(args):
 # eval: free running
 def sample_fr(args):
     data_pointer = 0
-    data = gen_data(1000000)
+    data = gen_data(2000000)
     
     model = Model(n_steps = 1, batch_size = 1)
     
@@ -346,6 +354,8 @@ def main(args):
         sample(args)
     elif args.mode == "sample_fr":
         sample_fr(args)
+    else:
+        print("unknown mode")
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

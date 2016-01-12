@@ -1,8 +1,6 @@
 # this is from https://m.reddit.com/r/MachineLearning/comments/3sok8k/tensorflow_basic_rnn_example_with_variable_length/
 
-# just run an untrained random network
-# a) basics
-# b) test cwrnn
+# test cwrnn without training to verify temporal segmentation
 
 import tensorflow as tf    
 from tensorflow.models.rnn import rnn    
@@ -20,7 +18,7 @@ def get_seq_input_data():
 if __name__ == '__main__':
     np.random.seed(1)      
     size = 16
-    batch_size= 3 # 100
+    batch_size= 1 # 100
     n_steps = 200
     seq_width = 1
 
@@ -39,12 +37,13 @@ if __name__ == '__main__':
     result = tf.placeholder(tf.float32, [None, seq_width])
     
 
-    cell = LSTMCell(size, seq_width, initializer=initializer)  
-    # cell = CWRNNCell(size, [1, 4, 16, 64])#, seq_width, initializer=initializer)  
-    # cell = BasicRNNCell(size)#, seq_width, initializer=initializer)  
+    # cell = LSTMCell(size, seq_width, initializer=initializer)  
+    # cell = CWRNNCell(size, [1, 4, 16, 64])#, seq_width, initializer=initializer)
+    cell = CWRNNCell(size, [1, 2, 4, 8])#, seq_width, initializer=initializer)
+    # cell = BasicRNNCell(size)#, seq_width, initializer=initializer)
     # initial_state = cell.zero_state(batch_size, tf.float32)
     initial_state = tf.random_uniform([batch_size, cell.state_size], -0.1, 0.1)
-    outputs, states = rnn.rnn(cell, inputs, initial_state=initial_state, sequence_length=early_stop)
+    outputs, states = rnn.rnn(cell, inputs, initial_state=initial_state) #, sequence_length=early_stop)
     # set up lstm
     final_state = states[-1]
 
@@ -74,7 +73,7 @@ if __name__ == '__main__':
     allouts = []
     allstates = []
     allhiddens = []
-    for i in range(3):
+    for i in range(1):
         print "pstate", prev_state
         feed = {early_stop:n_steps, seq_input: seq_input_data, initial_state: prev_state}
         # feed = {early_stop:n_steps, seq_input: seq_input_data}
@@ -107,7 +106,11 @@ if __name__ == '__main__':
         pl.subplot(413)
         pl.plot(allstates[i])
         pl.subplot(414)
-        print hidden[i].shape
-        pl.plot(allhiddens[i])
+        print "hidden[i].shape", hidden[i].shape
+        cols = ["k", "b", "r", "g"]
+        for j in range(0, len(hidden[i]), size / 4):
+        # for j in range(0, 8, 4):
+            print j, j/4, allhiddens[i]
+            pl.plot(allhiddens[i][:,j:j+4], cols[j/4] + "-")
     # pl.plot(outs)
     pl.show()
