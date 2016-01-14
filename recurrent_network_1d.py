@@ -1,5 +1,7 @@
 # this is from https://m.reddit.com/r/MachineLearning/comments/3sok8k/tensorflow_basic_rnn_example_with_variable_length/
 
+# try with hardmaru's MDN layer
+
 import argparse
 import tensorflow as tf    
 from tensorflow.models.rnn import rnn    
@@ -13,7 +15,7 @@ def gen_data(length=100):
     t = np.linspace(0, length, length, endpoint=False)
     s = np.zeros_like(t)
     for i in range(2):
-        s += np.sin(t * (((i+1) * 0.5) + np.random.uniform(-0.01, 0.01)))
+        s += np.sin(t * (((i + 1) * 0.1) + np.random.uniform(-0.01, 0.01)))
     return s/np.max(np.abs(s))
 
 def get_seq_input_data(ptr, data, p):
@@ -56,9 +58,9 @@ class Model():
         # targets = [tf.reshape(i, (batch_size, seq_width)) for i in tf.split(0, n_steps, target)]
         # target = tf.placeholder(tf.float32, [None, None, seq_width])
 
-        # cell = BasicRNNCell(self.size)
-        # cell = LSTMCell(self.size, self.seq_width, initializer=initializer) # problem with multirnncell
         cell = BasicLSTMCell(self.size, forget_bias=5.0)
+        # cell = LSTMCell(self.size, self.seq_width, initializer=initializer) # problem with multirnncell
+        # cell = BasicLSTMCell(self.size, forget_bias=5.0)
         # cell = CWRNNCell(self.size, [1, 4, 16, 64, 128])#, seq_width, initializer=initializer)
 
         cell = rnn_cell.MultiRNNCell([cell] * args.num_layers)
@@ -74,30 +76,110 @@ class Model():
         # set up lstm
         self.final_state = states[-1]
 
-        W_o = tf.Variable(tf.random_normal([self.size,1], stddev=0.01))
-        b_o = tf.Variable(tf.random_normal([1], stddev=0.01))
+        W_o = tf.Variable(tf.random_normal([self.size,self.seq_width * 3], stddev=0.01))
+        b_o = tf.Variable(tf.random_normal([3], stddev=0.01))
 
         # now, outputs is a list with len = seqlen and elems of dim batchsize x seqwidth
         output = tf.reshape(tf.concat(1, outputs), [-1, self.size])
         output = tf.tanh(tf.nn.xw_plus_b(output, W_o, b_o))
         # get it right here
-        self.output2 = tf.reshape(output, [self.batch_size, self.n_steps, self.seq_width])
-        self.output2 = self.output2 + tf.random_normal([self.batch_size, self.n_steps, self.seq_width], stddev=0.001)
+        self.output2 = tf.reshape(output, [self.batch_size, self.n_steps, self.seq_width*3])
+        self.output2 = self.output2 + tf.random_normal([self.batch_size, self.n_steps, self.seq_width*3], stddev=0.01)
         # then transpose
         self.output2 = tf.transpose(self.output2, [1, 0, 2])
         # self.final_state = states[-1]
 
+        # from write-rnn-tensorflow
+        def tf_1d_normal(x1, mu1, s1, rho):
+            # eq # 24 and 25 of http://arxiv.org/abs/1308.0850
+            norm1 = tf.sub(x1, mu1)
+            # norm2 = tf.sub(x2, mu2)
+            # s1s2 = tf.mul(s1, s2)
+            # z = tf.square(tf.div(norm1, s1))+tf.square(tf.div(norm2, s2))-2*tf.div(tf.mul(rho, norm1)), s1)
+            negRho = 1-tf.square(rho)
+            # result = tf.exp(tf.div(-z,2*negRho))
+            result = tf.exp(tf.div(-norm1, 2))
+            denom = 2*np.pi*tf.mul(s1, tf.sqrt(negRho))
+            result = tf.div(result, denom)
+            return result
+
+        def get_lossfunc(z_pi, z_mu1, z_sigma1, z_corr, x1_data):
+            # result0 = tf_2d_normal(x1_data, x2_data, z_mu1, z_mu2, z_sigma1, z_sigma2, z_corr)
+            result0 = tf_1d_normal(x1_data, z_mu1, z_sigma1, z_corr)
+            # implementing eq # 26 of http://arxiv.org/abs/1308.0850
+            epsilon = 1e-20
+            result1 = tf.mul(result0, z_pi)
+            result1 = tf.reduce_sum(result1, 1, keep_dims=True)
+            result1 = -tf.log(tf.maximum(result1, epsilon)) # at the beginning, some errors are exactly zero.
+
+            # result2 = tf.mul(z_eos, eos_data) + tf.mul(1-z_eos, 1-eos_data)
+            # result2 = -tf.log(result2)
+
+            result = result1 # + result2
+            return tf.reduce_sum(result)
+
+        # below is where we need to do MDN splitting of distribution params
+        def get_mixture_coef(output):
+            # returns the tf slices containing mdn dist params
+            # ie, eq 18 -> 23 of http://arxiv.org/abs/1308.0850
+            z = output
+            print z
+            # z_eos = z[:, 0:1]
+            # z_pi, z_mu1, z_mu2, z_sigma1, z_sigma2, z_corr = tf.split(1, self.dim * 3, z[:, 0:])
+            z_pi, z_mu1, z_sigma1 = tf.split(1, self.seq_width * 3, z[:, 0:])
+
+            # process output z's into MDN paramters
+
+            # end of stroke signal
+            # z_eos = tf.sigmoid(z_eos) # should be negated, but doesn't matter.
+
+            # softmax all the pi's:
+            max_pi = tf.reduce_max(z_pi, 1, keep_dims=True)
+            z_pi = tf.sub(z_pi, max_pi)
+            z_pi = tf.exp(z_pi)
+            normalize_pi = tf.inv(tf.reduce_sum(z_pi, 1, keep_dims=True))
+            z_pi = tf.mul(normalize_pi, z_pi)
+
+            # exponentiate the sigmas and also make corr between -1 and 1.
+            z_sigma1 = tf.exp(z_sigma1)
+            # z_sigma2 = tf.exp(z_sigma2)
+            # z_corr = tf.tanh(z_corr)
+
+            return [z_pi, z_mu1, z_sigma1, 1.]
+
+        [o_pi, o_mu1, o_sigma1, o_corr] = get_mixture_coef(output)
+
+        self.pi = o_pi
+        self.mu1 = o_mu1
+        # self.mu2 = o_mu2
+        self.sigma1 = o_sigma1
+        # self.sigma2 = o_sigma2
+        self.corr = o_corr
+        # self.eos = o_eos
+
+        lossfunc = get_lossfunc(o_pi, o_mu1, o_sigma1, o_corr, self.target)
+        self.cost = lossfunc / (args.batch_size * args.seq_length)
+
+        self.lr = tf.Variable(0.0, trainable=False)
+        tvars = tf.trainable_variables()
+        grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, tvars), 5.)# args.grad_clip)
+        optimizer = tf.train.AdamOptimizer(self.lr)
+        self.optimizer = optimizer.apply_gradients(zip(grads, tvars))
+
+
+
+        
         # cost = output - target
         # self.cost = tf.reduce_mean(tf.pow(self.output2 - self.target, 2)) # MSE
-        self.cost = tf.reduce_mean(tf.abs(self.output2 - self.target)) # MSE
-        learning_rate = 0.001
+        # self.cost = tf.reduce_mean(tf.abs(self.output2 - self.target)) # MSE
+        # learning_rate = 0.001
         # print "trainable", tf.trainable_variables()
     
         # tvars = tf.trainable_variables()
         # grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), 10.)
         # optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
         # train_op = optimizer.apply_gradients(zip(grads, tvars))
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost) # Adam Optimizer
+        # self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost) # Adam Optimizer
 
 def train(args):
     data_pointer = 0
