@@ -9,6 +9,8 @@ a = tf.placeholder(tf.float32, [seqlen, batchsize, dim])
 b1 = tf.split(0, seqlen, a)
 b2 = [tf.reshape(i, (batchsize, dim)) for i in tf.split(0, seqlen, a)]
 
+
+
 with tf.device("/gpu:1"):
     result = a * 1
 

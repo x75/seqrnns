@@ -251,7 +251,7 @@ def train(args):
             # print len(tcost)
             print "cost[%d] = %f" % (i, tcost)
         if i % 100 == 0:
-            saver.save(session, "recurrent_network_1b.ckpt", global_step = i)
+            saver.save(session, "recurrent_network_1d.ckpt", global_step = i)
         
         data_pointer += model.n_steps
 
@@ -263,7 +263,7 @@ def train(args):
     f = open("recurrent_network_1b_allcosts.cpkl", "wb")
     cPickle.dump(allcosts, f)
     f.close()
-    saver.save(session, "recurrent_network_1b.ckpt")
+    saver.save(session, "recurrent_network_1d.ckpt")
     
 
 def sample(args):
@@ -281,7 +281,7 @@ def sample(args):
 
     saver = tf.train.Saver(tf.all_variables(), max_to_keep = 100)
 
-    saver.restore(session, "recurrent_network_1b.ckpt")
+    saver.restore(session, "recurrent_network_1d.ckpt")
     
     # eval
     prev_state = session.run(tf.random_uniform([model.batch_size, model.cell.state_size], -1., 1.))
@@ -359,7 +359,7 @@ def sample_fr(args):
 
     saver = tf.train.Saver(tf.all_variables(), max_to_keep = 100)
 
-    saver.restore(session, "recurrent_network_1b.ckpt")
+    saver.restore(session, "recurrent_network_1d.ckpt")
     
     # eval
     prev_state = session.run(tf.random_uniform([1, model.cell.state_size], -1., 1.))

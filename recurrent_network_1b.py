@@ -211,7 +211,7 @@ def sample(args):
         "batch_size": model.batch_size,
         "seq_width": model.seq_width
         }
-    for i in range(3):
+    for i in range(1000):
         seq_input_data  = get_seq_input_data(data_pointer, data, params)
         seq_target_data = get_seq_input_data(data_pointer+1, data, params)
         # print type(seq_target_data)
