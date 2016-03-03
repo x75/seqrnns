@@ -1,6 +1,6 @@
 # this is from https://m.reddit.com/r/MachineLearning/comments/3sok8k/tensorflow_basic_rnn_example_with_variable_length/
 
-# test cwrnn without training to verify temporal segmentation
+# test cwrnn (without training) to verify temporal segmentation
 
 import tensorflow as tf    
 from tensorflow.models.rnn import rnn    

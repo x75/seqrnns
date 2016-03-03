@@ -1,5 +1,16 @@
 # this is from https://m.reddit.com/r/MachineLearning/comments/3sok8k/tensorflow_basic_rnn_example_with_variable_length/
 
+# create a tf RNN of type X
+
+# train network
+# python recurrent_network_1b.py -m train --seq_length 100 --train_step 1000
+
+# sample from network with fixed input
+# python recurrent_network_1b.py -m sample --seq_length 100 --train_step 1000
+
+# sample from network in freerunning mode
+# python recurrent_network_1b.py -m sample_fr --seq_length 100 --train_step 1000
+
 import argparse
 import tensorflow as tf    
 from tensorflow.models.rnn import rnn    
@@ -12,8 +23,9 @@ import cPickle
 def gen_data(length=100):
     t = np.linspace(0, length, length, endpoint=False)
     s = np.zeros_like(t)
-    for i in range(2):
-        s += np.sin(t * (((i+1) * 0.5) + np.random.uniform(-0.01, 0.01)))
+    for i in range(3):
+        s += np.sin(t * (((i+1) * 0.1) + np.random.uniform(-0.01, 0.01)))
+        # s += np.sin(t * (((i+1) * 0.1)))
     return s/np.max(np.abs(s))
 
 def get_seq_input_data(ptr, data, p):
@@ -21,8 +33,8 @@ def get_seq_input_data(ptr, data, p):
     seq_input_data = np.zeros((p["n_steps"], p["batch_size"], p["seq_width"])).astype('float32')
     # seq_input_data[0, :, :] = 1.
     # seq_input_data[n_steps/2, :, :] = -1.
-    for n in xrange(p["batch_size"]):
-        # print n
+    for n in xrange(p["batch_size"]): # minus one?
+        # print "batch#", n, seq_input_data[:,n,:].shape, data[ptr:ptr+p["n_steps"],np.newaxis].shape
         seq_input_data[:,n,:] = data[ptr:ptr+p["n_steps"],np.newaxis]
         # pass
     
@@ -31,7 +43,7 @@ def get_seq_input_data(ptr, data, p):
 class Model():
     def __init__(self, n_steps = 100, batch_size = 1):
         np.random.seed(5)
-        self.size = 200
+        self.size = 300
         self.batch_size = batch_size # 100
         self.n_steps = n_steps
         self.seq_width = 1
@@ -58,8 +70,8 @@ class Model():
 
         # cell = BasicRNNCell(self.size)
         # cell = LSTMCell(self.size, self.seq_width, initializer=initializer) # problem with multirnncell
-        cell = BasicLSTMCell(self.size, forget_bias=5.0)
-        # cell = CWRNNCell(self.size, [1, 4, 16, 64, 128])#, seq_width, initializer=initializer)
+        # cell = BasicLSTMCell(self.size, forget_bias=5.0)
+        cell = CWRNNCell(self.size, [1, 4, 16, 64, 128])#, seq_width, initializer=initializer)
 
         cell = rnn_cell.MultiRNNCell([cell] * args.num_layers)
 
@@ -70,7 +82,8 @@ class Model():
     
         self.initial_state = self.cell.zero_state(self.batch_size, tf.float32)
         # initial_state = tf.random_uniform([batch_size, cell.state_size], -0.1, 0.1)
-        outputs, states = rnn.rnn(self.cell, self.inputs, initial_state = self.initial_state, sequence_length = self.early_stop)
+        # outputs, states = rnn.rnn(self.cell, self.inputs, initial_state = self.initial_state, sequence_length = self.early_stop)
+        outputs, states = rnn.rnn(self.cell, self.inputs, initial_state = self.initial_state)
         # set up lstm
         self.final_state = states[-1]
 
@@ -82,26 +95,34 @@ class Model():
         output = tf.tanh(tf.nn.xw_plus_b(output, W_o, b_o))
         # get it right here
         self.output2 = tf.reshape(output, [self.batch_size, self.n_steps, self.seq_width])
-        self.output2 = self.output2 + tf.random_normal([self.batch_size, self.n_steps, self.seq_width], stddev=0.001)
+        # apply output noise?
+        # self.output2 = self.output2 + tf.random_normal([self.batch_size, self.n_steps, self.seq_width], stddev=0.001)
+        
         # then transpose
         self.output2 = tf.transpose(self.output2, [1, 0, 2])
         # self.final_state = states[-1]
 
         # cost = output - target
         # self.cost = tf.reduce_mean(tf.pow(self.output2 - self.target, 2)) # MSE
-        self.cost = tf.reduce_mean(tf.abs(self.output2 - self.target)) # MSE
-        learning_rate = 0.001
+        self.cost = tf.reduce_mean(tf.abs(self.output2 - self.target)) # MAE
+        
+        learning_rate = 0.001 # 0.001
         # print "trainable", tf.trainable_variables()
     
         # tvars = tf.trainable_variables()
         # grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), 10.)
         # optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
         # train_op = optimizer.apply_gradients(zip(grads, tvars))
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost) # Adam Optimizer
+        
+        self.optimizer = tf.train.RMSPropOptimizer(learning_rate = learning_rate, decay=0.9, momentum=0.9, epsilon=1e-10).minimize(self.cost) # Adam Optimizer
+        # self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost) # Adam Optimizer
 
 def train(args):
     data_pointer = 0
-    data = gen_data(2000000)
+    data = gen_data(args.seq_length * args.train_steps + 1)
+
+    pl.plot(data)
+    pl.show()
 
     model = Model(n_steps = args.seq_length, batch_size = args.batch_size)
     
@@ -174,6 +195,7 @@ def train(args):
         data_pointer += model.n_steps
 
     pl.ioff()
+    pl.title("training cost")
     pl.plot(allcosts)
     pl.show()
         
@@ -182,11 +204,13 @@ def train(args):
     cPickle.dump(allcosts, f)
     f.close()
     saver.save(session, "recurrent_network_1b.ckpt")
-    
 
 def sample(args):
     data_pointer = 0
-    data = gen_data(2000000)
+    data = gen_data(args.seq_length * args.train_steps + 1)
+
+    # pl.plot(data)
+    # pl.show()
     
     model = Model(n_steps = args.seq_length, batch_size = args.batch_size)
     
@@ -211,9 +235,14 @@ def sample(args):
         "batch_size": model.batch_size,
         "seq_width": model.seq_width
         }
-    for i in range(1000):
+    for i in range(args.train_steps):
         seq_input_data  = get_seq_input_data(data_pointer, data, params)
         seq_target_data = get_seq_input_data(data_pointer+1, data, params)
+
+        # pl.plot(seq_input_data[:,0,:])
+        # pl.plot(seq_target_data[:,0,:])
+        # pl.show()
+        
         # print type(seq_target_data)
         data_pointer += model.n_steps
         # print "pstate", prev_state
@@ -228,7 +257,7 @@ def sample(args):
         outs, fstate, tcost = session.run([model.output2, model.final_state, model.cost], feed_dict=feed)
         # outs, fstate, tcost, opt = session.run([output, final_state, cost, optimizer], feed_dict=feed)
         prev_state = fstate
-        # print "fstate", fstate,tcost
+        # print "fstate", outs,fstate,tcost
         allouts.append(outs)
         allcosts.append(tcost)
         # tcost = session.run(cost, feed_d)
@@ -241,20 +270,24 @@ def sample(args):
     print type(outs)
     print len(outs)
     print type(outs[0])
-    print outs[0].shape
+    print outs.shape, outs[0].shape
     print "allouts", len(allouts)
 
     pl.subplot(311)
+    pl.title("input, target, output")
     for j in range(model.batch_size):
+        print "batch#", j
         pl.plot(seq_input_data[:,j,:], label="input")
         pl.plot(seq_target_data[:,j,:], label="target")
         pl.plot(outs[:,j,:], label="pred")
-        
+    pl.legend()
     pl.subplot(312)
+    pl.title("all outputs over sample iterations")
     allouts = np.asarray(allouts)
     pl.plot(allouts.flatten())
 
     pl.subplot(313)
+    pl.title("cost")
     pl.plot(allcosts)
     
     # pl.plot(outs)
@@ -264,7 +297,7 @@ def sample(args):
 # eval: free running
 def sample_fr(args):
     data_pointer = 0
-    data = gen_data(2000000)
+    data = gen_data(args.seq_length * args.train_steps + 1)
     
     model = Model(n_steps = 1, batch_size = 1)
     
@@ -285,7 +318,8 @@ def sample_fr(args):
     allouts  = []
     allcosts = []
     params = {
-        "n_steps": model.n_steps,
+
+            "n_steps": model.n_steps,
         "batch_size": model.batch_size,
         "seq_width": model.seq_width
         }

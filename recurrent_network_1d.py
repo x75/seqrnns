@@ -1,6 +1,9 @@
 # this is from https://m.reddit.com/r/MachineLearning/comments/3sok8k/tensorflow_basic_rnn_example_with_variable_length/
 
-# try with hardmaru's MDN layer
+# trying to port hardmaru's MDN layer for sequence task
+# not working yet
+# - nd-normal sampling
+
 
 import argparse
 import tensorflow as tf    

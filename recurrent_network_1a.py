@@ -1,8 +1,6 @@
 # this is from https://m.reddit.com/r/MachineLearning/comments/3sok8k/tensorflow_basic_rnn_example_with_variable_length/
 
 # just run an untrained random network
-# a) basics
-# b) test cwrnn
 
 import tensorflow as tf    
 from tensorflow.models.rnn import rnn    
